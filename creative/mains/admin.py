@@ -4,7 +4,8 @@ from .models import (Calculater,
                      Auditories,
                      ChangeAuditories,
                      Service,
-                     Accommodation)
+                     Accommodation,
+                     ResultTable)
 from decimal import Decimal
 
 
@@ -75,6 +76,7 @@ class AuditoriesAdmin(admin.ModelAdmin):
 @admin.register(ChangeAuditories)
 class ChangeAuditoriesAdmin(admin.ModelAdmin):
     list_display = ('id',
+                    'name',
                     'auditories',)
 
 @admin.register(Service)
@@ -100,6 +102,7 @@ class AccommodationAdmin(admin.ModelAdmin):
         'name',
         'service',
         'specialyties',
+        'name_change',
         'count_doc',
         'season',
         'season_coeff',
@@ -118,3 +121,8 @@ class AccommodationAdmin(admin.ModelAdmin):
         'grp'
     )
     search_fields = ('name',)
+
+
+@admin.register(ResultTable)
+class ResultTableAdmin(admin.ModelAdmin):
+    list_display = ('name', 'result_list')

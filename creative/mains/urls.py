@@ -8,7 +8,8 @@ from .views import (
     AuditoriesViewSet,
     ChangeAuditoriesViewSet,
     ServiceViewSet,
-    AccommodationViewSet
+    AccommodationViewSet,
+    ResultTableViewSet
 )
 
 
@@ -18,7 +19,9 @@ router.register('calculaters', CalculaterViewSet)
 router.register('auditories', AuditoriesViewSet)
 router.register('changea', ChangeAuditoriesViewSet)
 router.register('service', ServiceViewSet)
-router.register('accommodation', AccommodationViewSet)
+router.register(r'accommodation', AccommodationViewSet)
+router.register('resulttable', ResultTableViewSet)
+
 
 urlpatterns = [
     path('', include(router.urls)),

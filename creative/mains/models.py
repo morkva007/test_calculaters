@@ -1,9 +1,8 @@
 from django.db import models
 from django.contrib.auth import get_user_model
-from django.db.models import Sum, IntegerField, Value
+from django.db.models import Sum
 from django.core.validators import MinValueValidator
 from decimal import Decimal, DivisionByZero
-from django.db.models.functions import Coalesce, Cast
 
 User = get_user_model()
 
@@ -109,6 +108,9 @@ class Auditories(models.Model):
 
 
 class ChangeAuditories(models.Model):
+    name = models.CharField(max_length=150,
+                            null=True,
+                            blank=True)
     auditories = models.ForeignKey(
         Auditories,
         on_delete=models.CASCADE,
@@ -165,11 +167,13 @@ class Accommodation(models.Model):
         verbose_name='Формат размещения')
     specialyties = models.ForeignKey(
         ChangeAuditories,
-        on_delete=models.DO_NOTHING,
+        on_delete=models.PROTECT,
+        db_constraint=False,
         null=True,
         default=None,
         verbose_name='Специализация врача'
     )
+    name_change = models.CharField(max_length=150)
     count_doc = models.IntegerField(null=True, blank=True)
     season = models.CharField(
         max_length=13,
@@ -271,9 +275,11 @@ class Accommodation(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        # name_change = self.specialyties.name
         if self.specialyties is None:
             doc_count = ChangeAuditories.objects.filter(
-            auditories__isnull=False).aggregate(
+                name=self.name_change,
+                auditories__isnull=False).aggregate(
                 total=Sum('auditories__count_doc')
             )['total'] or 0
             self.count_doc = doc_count
@@ -320,6 +326,7 @@ class Accommodation(models.Model):
             self.price = self.service.price_before_10000
         if self.specialyties is None:
             queryset = ChangeAuditories.objects.filter(
+                name=self.name_change,
                 auditories__isnull=False)
             price_one = 0
             price_sum = 0
@@ -389,6 +396,7 @@ class Accommodation(models.Model):
             self.cost = Decimal('0.00')
         self.fte = self.kpi * self.service.fte
         total_grp = ChangeAuditories.objects.filter(
+            name=self.name_change,
             auditories__isnull=False).aggregate(
             total_grp=Sum(
                 'auditories__count_doc_GRP')
@@ -427,3 +435,92 @@ class Accommodation(models.Model):
                     self.grp = Decimal('0.00')
 
         super().save(*args, **kwargs)
+
+
+class ResultTable(models.Model):
+    name = models.CharField(max_length=150)
+    name_accommodation = models.CharField(max_length=150, blank=True, null=True)
+    name_calculater = models.CharField(max_length=150, blank=True, null=True)
+    name_change = models.CharField(max_length=150, blank=True, null=True)
+    result_list = models.JSONField(default=list, blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        result_list = []
+        # получаем уникальные значения специальностей
+        change_a_list = Accommodation.objects.filter(
+            name=self.name_accommodation, name_change=self.name_change
+        ).values_list('specialyties', flat=True).distinct()
+        change_a = []
+        for i in change_a_list:
+            if i is not None:
+                select_auditories = ChangeAuditories.objects.get(id=i)
+                if select_auditories not in change_a:
+                    change_a.append(
+                        select_auditories)
+            else:
+                select_auditories = ChangeAuditories.objects.filter(
+                    name=self.name_change
+                )
+                for y in select_auditories:
+                    if y not in change_a:
+                        change_a.append(
+                            y)
+        for a in change_a:
+            doctor = Auditories.objects.get(speciality=a)
+            doctor_dict = {'speciality': doctor.speciality,
+                           'count_doc': doctor.count_doc}
+
+            share = Decimal(doctor_dict['count_doc']) / ChangeAuditories.objects.filter(
+                    name=self.name_change, auditories__isnull=False
+                ).aggregate(total=Sum('auditories__count_doc')
+                            )['total']
+            if Accommodation.objects.filter(
+                    name=self.name_accommodation,
+                    name_change=self.name_change,
+                    specialyties=a).exists():
+                price_not_NDS = Accommodation.objects.filter(
+                    name=self.name_accommodation, name_change=self.name_change,
+                    specialyties=a).aggregate(total=Sum(
+                    'price_d'))['total']
+                accommodation_price_not_NDS = (
+                                                      Accommodation.objects.filter(
+                                                          name=self.name_accommodation,
+                                                          name_change=self.name_change,
+                                                          specialyties=None
+                                                      ).aggregate(total=Sum(
+                                                          'price_d'))['total']
+                                              ) * share + price_not_NDS
+                accommodation_price_with_NDS = accommodation_price_not_NDS * Decimal('1.2')
+            else:
+                accommodation_price_not_NDS = Accommodation.objects.filter(
+                    name=self.name_accommodation,
+                    name_change=self.name_change,
+                    specialyties=None
+                                             ).aggregate(
+                    total=Sum('price_d'))[
+                    'total'] * share
+                accommodation_price_with_NDS = accommodation_price_not_NDS * Decimal('1.2')
+
+            calculator_price_not_NDS = Calculater.objects.filter(
+                    name=self.name_calculater).aggregate(
+                total=Sum('price_without_NDS')
+            )['total'] / ChangeAuditories.objects.filter(
+                name=self.name_change, auditories__isnull=False
+            ).aggregate(total=Sum('auditories__count_doc')
+                        )['total'] * Decimal(doctor_dict['count_doc'])
+            calculator_price_with_NDS = Calculater.objects.filter(
+                    name=self.name_calculater).aggregate(
+                total=Sum('price_with_NDS')
+            )['total'] / ChangeAuditories.objects.filter(
+                name=self.name_change, auditories__isnull=False
+            ).aggregate(total=Sum('auditories__count_doc')
+                        )['total'] * Decimal(doctor_dict['count_doc'])
+            result_list.append({
+                'doctor': doctor_dict,
+                'accommodation_price_not_NDS': round(float(accommodation_price_not_NDS), 2),
+                'accommodation_price_with_NDS': round(float(accommodation_price_with_NDS), 2),
+                'calculator_price_not_NDS': round(float(calculator_price_not_NDS), 2),
+                'calculator_price_with_NDS': round(float(calculator_price_with_NDS), 2)
+            })
+        self.result_list = result_list
+        super(ResultTable, self).save(*args, **kwargs)
