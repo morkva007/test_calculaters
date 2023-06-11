@@ -41,6 +41,8 @@ INSTALLED_APPS = [
     'mains.apps.MainsConfig'
 ]
 
+DATE_TIME_FORMAT = '%d/%m/%Y %H:%M'
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

@@ -1,4 +1,8 @@
 from rest_framework import viewsets, status
+from datetime import datetime as dt
+from django.http import HttpResponse
+from creative.settings import DATE_TIME_FORMAT
+import csv
 from rest_framework.response import Response
 from .models import (
     Calculater,
@@ -19,7 +23,7 @@ from .serializers import (
     AccommodationSerializers,
     ResultTableSerializers)
 from rest_framework.decorators import action
-
+from django.db.models import F
 
 class S_directory_DCreativeViewSet(viewsets.ModelViewSet):
     queryset = S_directory_DCreative.objects.all()
@@ -187,5 +191,139 @@ class ResultTableViewSet(viewsets.ModelViewSet):
     queryset = ResultTable.objects.all()
     serializer_class = ResultTableSerializers
 
-    # @action(methods=('get',), detail=False)
-    # def download_result_table(self, request):
+    # http://127.0.0.1:8000/mains/resulttable/download_result_table/?name=<selected_name>
+    @action(methods=('get',), detail=False)
+    def download_result_table(self, request):
+        result_table = ResultTable.objects.filter(
+            name=request.GET.get('name'))
+        accommodation = result_table.first().name_accommodation
+        calculater = result_table.first().name_calculater
+        filename = f'{result_table.first().name}_resulttable.csv'
+        result = [
+            f'Итоговая таблица для калькуляторов:\n'
+            f'"Формат размещения" № {accommodation}\n'
+            f'"D-Creative" № {calculater}\n\n'
+            f'{dt.now().strftime(DATE_TIME_FORMAT)}\n'
+        ]
+        result_1 = [f'\n\nКалькулятор Формат размещения № {accommodation}\n\n']
+        result_2 = [f'\n\nКалькулятор "D-Creative" № {calculater}\n\n']
+        response = HttpResponse(
+            content_type='text/csv; charset=utf-8')
+        response.write('\ufeff'.encode('utf-8')) # добавляем BOM
+        writer = csv.writer(response, delimiter=';', lineterminator='\r\n')
+        response.write(str.encode(''.join(
+            result)))
+        writer.writerow(['{:<10}'.format('Специальность_врача'),
+                         '{:<10}'.format('Количество врачей'),
+                         '{:<10}'.format('Цена без НДС для Формата размещения'),
+                         '{:<10}'.format('Цена с НДС для Формата размещения'),
+                         '{:<10}'.format('Цена без НДС для D-Creative'),
+                         '{:<10}'.format('Цена с НДС для D-Creative')])
+        for r in result_table.values('result_list'):
+            for i in r['result_list']:
+                writer.writerow(['{:<10}'.format(i['doctor']['speciality']),
+                                 '{:<10}'.format(i['doctor']['count_doc']),
+                                 '{:<10}'.format(i['accommodation_price_not_NDS']),
+                                 '{:<10}'.format(i[
+                                     'accommodation_price_with_NDS']),
+                                 '{:<10}'.format(i[
+                                     'calculator_price_not_NDS']),
+                                 '{:<10}'.format(i[
+                                     'calculator_price_with_NDS'])
+                                 ])
+        response.write(str.encode(''.join(
+            result_2)))
+        writer.writerow(['{:<10}'.format('Формат размещения'),
+                         '{:<10}'.format('Количество'),
+                         '{:<10}'.format('Цена без НДС'),
+                         '{:<10}'.format('Цена с НДС'),
+                         '{:<10}'.format('НДС')])
+        calculater_obj = Calculater.objects.filter(name=calculater).values()
+        for i in calculater_obj:
+            f = i['creative_id']
+            writer.writerow(['{:<10}'.format(
+                S_directory_DCreative.objects.get(id=f).name),
+                             '{:<10}'.format(
+                                 i['count_r']),
+                             '{:<10}'.format(i[
+                                                 'price_without_NDS']),
+                             '{:<10}'.format(i[
+                                                 'NDS']),
+                             '{:<10}'.format(i[
+                                                 'price_with_NDS'])
+                             ])
+        response.write(str.encode(''.join(
+            result_1)))
+        writer.writerow(
+            ['{:<10}'.format('Формат размещения'),
+             '{:<10}'.format('Специальность'),
+             '{:<10}'.format('Количество врачей'),
+             '{:<10}'.format('Сезон'),
+             '{:<10}'.format('Сезонный коэффициент'),
+             '{:<10}'.format('Цена за единицу'),
+             '{:<10}'.format('Количество'),
+             '{:<10}'.format('Скидка'),
+             '{:<10}'.format('Скидка в рублях'),
+             '{:<10}'.format('Цена без НДС'),
+             '{:<10}'.format('Цена с учетом скидки'),
+             '{:<10}'.format('НДС'),
+             '{:<10}'.format('Цена с НДС'),
+             '{:<10}'.format('Еиница измерения'),
+             '{:<10}'.format('kpi'),
+             '{:<10}'.format('Стоимость за единицу'),
+             '{:<10}'.format('fte'),
+             '{:<10}'.format('grp')
+             ])
+        accommodation_obj = Accommodation.objects.filter(name=accommodation).values()
+        for i in accommodation_obj:
+            f = i['service_id']
+            s = i['specialyties_id']
+            x = Accommodation.objects.get(id=i['id'])
+            season_display_value = x.get_season_display()
+            if s is None:
+                s = "Все из списка"
+            else:
+                try:
+                    s = ChangeAuditories.objects.get(
+                        id=s).auditories
+                except ChangeAuditories.DoesNotExist:
+                    s = "None"
+            writer.writerow(['{:<10}'.format(
+                Service.objects.get(
+                    id=f).title),
+                '{:<10}'.format(str(s)),
+                '{:<10}'.format(
+                    i['count_doc']),
+                '{:<10}'.format(
+                    season_display_value),
+                '{:<10}'.format(
+                    i['season_coeff']),
+                '{:<10}'.format(
+                    i['price']),
+                '{:<10}'.format(
+                    i['count_a']),
+                '{:<10}'.format(
+                    i['discount']),
+                '{:<10}'.format(
+                    i['discount_rub']),
+                '{:<10}'.format(
+                    i['price_not_NDS']),
+                '{:<10}'.format(
+                    i['price_d']),
+                '{:<10}'.format(
+                    i['NDS']),
+                '{:<10}'.format(
+                    i['final_price']),
+                '{:<10}'.format(
+                    i['unit']),
+                '{:<10}'.format(
+                    i['kpi']),
+                '{:<10}'.format(
+                    i['cost']),
+                '{:<10}'.format(
+                    i['fte']),
+                '{:<10}'.format(
+                    i['grp'])
+                ])
+        response['Content-Disposition'] = f'attachment; filename={filename}'
+        return response
